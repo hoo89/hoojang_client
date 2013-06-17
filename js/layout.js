@@ -10,23 +10,23 @@ GAME_HEIGHT = 640;
 MJ_LAYOUTS = {
   tehai_0: {
     rotation: 0,
-    x: 110,
-    y: 578
+    x: 320 - 210,
+    y: 600 - 26
   },
   tehai_1: {
     rotation: 3,
-    x: 578,
-    y: 530
+    x: 570 - 210,
+    y: 320 - 26
   },
   tehai_2: {
     rotation: 2,
-    x: 530,
-    y: 62
+    x: 320 - 210,
+    y: 60 - 26
   },
   tehai_3: {
     rotation: 1,
-    x: 62,
-    y: 110
+    x: 70 - 210,
+    y: 320 - 26
   },
   kawa_0: {
     rotation: 0,
@@ -64,16 +64,16 @@ MJ_LAYOUTS = {
     y: 360
   },
   score_1: {
-    x: 220,
-    y: 190
+    x: 300,
+    y: 280
   },
   score_2: {
-    x: 40,
-    y: 270
+    x: 260,
+    y: 320
   },
   score_3: {
-    x: 110,
-    y: 460
+    x: 340,
+    y: 320
   }
 };
 
@@ -90,16 +90,6 @@ MahjongScreen = (function(_super) {
       n.rotation = MJ_LAYOUTS[n.layout_id].rotation * 90;
       if (MJ_LAYOUTS[n.layout_id].fontsize) {
         n.font = MJ_LAYOUTS[n.layout_id].fontsize + "px メイリオ";
-      }
-      switch (MJ_LAYOUTS[n.layout_id].rotation) {
-        case 1:
-          n.moveTo(-GAME_WIDTH, 0);
-          break;
-        case 2:
-          n.moveTo(-GAME_WIDTH, -GAME_HEIGHT);
-          break;
-        case 3:
-          n.moveTo(0, -GAME_HEIGHT);
       }
       n.moveBy(MJ_LAYOUTS[n.layout_id].x, MJ_LAYOUTS[n.layout_id].y);
     }

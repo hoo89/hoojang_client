@@ -4,70 +4,100 @@
 
 class ModelBase
   constructor:->
-    @listeners=[]
-  add_listener:(a)->
-    @listeners.push(a)
+    @listeners={}
+  add_listener:(type,a)->
+    if !@listeners[type]
+      @listeners[type]=[a]
+    else
+      @listeners[type].push(a)
     a
   notify:(action)->
-    for i in @listeners
-      i.update(@,action)
-  remove_listener:(a)->
-    @listeners.splice(@listeners.indexOf(a),1)
+    if @listeners[action.type]
+      for i in @listeners[action.type]
+        i(action)
+  #remove_listener:(a)->
+    #@listeners.splice(@listeners.indexOf(a),1)
+
+MAX_KYOKU=4
 
 class Stage extends ModelBase
   constructor:->
     super
-    @statuslist={
+    @states={
       start_kyoku:0
       tsumo:1
       dahai:2
       other_player:3
-      wait_for_response:4
+      end_kyoku:4
+      end_game:5
     }
-    @status=@statuslist.start_kyoku
-    @action_que=[]
+    @state=@states.start_kyoku
+    @action_que=[true,true,true,true]
+    @rest_actions=[] #reach_acceptedのあと他のplayerのchi|pon|kanを持っておくためのキュー
     @ActionSortIndex={hora:0,pon:1,kan:2,chi:3,none:4}
     
     @players = []
     for i in [0..3]
-      if i == 0
-        @players.push(new MyPlayer(i,i))
-      else
+      if i==0
         @players.push(new NPC(i,i))
+      else
+        @players.push(new Plain(i,i))
 
     @kyoku=1
     @titya=0
-    @oya=@titya
     @honba=0
     @bakaze=0
     @kyotaku=0
 
-  update:->
-    switch @status
+  get_action:->
+    for i in [0..3]
+      if @players[i].action
+        @action_que[i]=@players[i].pop_action()
+      if !@action_que[i]
+        return
+
+    switch @state
+      #start_kyoku
       when 0
-        a=@wait_for_start()
+        a=@get_start_action()
+      #tsumo
       when 1
-        a=@wait_for_tsumo()
+        a=@get_tsumo_action()
+      #dahai|kan|reach
       when 2
-        a=@wait_for_dahai()
+        a=@get_dahai_action()
+      #pon|kan|chi|hora|reach_accepted
       when 3
-        a=@wait_for_other_player()
+        a=@get_other_player_action()
+      #end_kyoku
+      when 4
+        a=@get_end_kyoku()
+      when 5
+        pass
+
+    @action_que=[false,false,false,false]
+    a
+
+  update:->
+    a=@get_action()
 
     if a
+      console.log(a)
       @act a
       a
-        
-  wait_for_start:->
+
+  get_start_action:->
     @yama=new Yama
     @yama.shuffle()
     #@yama.tsumikomi [0,1,2,3,7,11,12,13,15,16,17,25,25]
     @wanpai=@yama.pop_wanpai()
+    oya=@players.filter((i)->i.is_oya())[0].number
     a={"type": "start_kyoku",
     "bakaze": @bakaze,
     "kyoku":@kyoku,
     "honba": @honba,
     "kyotaku": @kyotaku,
-    "oya": @oya,
+    "oya": oya,
     "dora_marker" :@wanpai[0],
     "tehais":[[],[],[],[]]  
     }
@@ -76,118 +106,119 @@ class Stage extends ModelBase
         a.tehais[i].push @yama.shift()
     a
 
-  wait_for_tsumo:->
+  get_tsumo_action:->
     if @yama.length()==0
       type:"ryukyoku"
     else
-      type:"tsumo",actor:@now_player,pai:@yama.shift()
+      type:"tsumo",actor:@phase,pai:@yama.shift()
 
-  wait_for_dahai:->
-    if @now_player.action
-      @now_player.pop_action()
+  get_dahai_action:->
+    for i in @action_que
+      if i.actor == @phase
+        return i
 
-  wait_for_other_player:->
-    for i in @players.filter((i)=> i!=@now_player)
-      if i.action
-        @action_que.push(i.pop_action())
+  get_other_player_action:->
+    if @rest_actions.length!=0
+      return @rest_actions.pop()
 
-    if @action_que.length<3
-      return 
     #ロン>鳴き、ポン＞チー
     @action_que.sort((a,b)=>
       diff=@ActionSortIndex[a.type]-@ActionSortIndex[b.type]
       if diff!=0||a.type=="none" then diff
-      else @now_player.get_distance(a.actor)-@now_player.get_distance(b.actor)
+      else @players[@phase].get_distance(a.actor)-@players[@phase].get_distance(b.actor)
     )
 
     a=@action_que[0]
 
-    if a.type!="hora"
-      if @reached_player!=false
-        p=@reached_player
-        @reached_player=false
-        return {type:"reach_accepted",actor:p}
+    if a.type!="hora"&&@reached_player!=false
+      p=@reached_player
+      @reached_player=false
+      @rest_actions=[a]
+      return {type:"reach_accepted",actor:p}
 
-    @action_que.length=0
     a
+
+  get_end_kyoku:->
+    if @kyoku <= MAX_KYOKU
+      type:"end_kyoku"
+    else
+      type: "end_game"
 
   act:(a)->
     switch a.type
       when "start_kyoku"
         @start(a)
-        @status=@statuslist.tsumo
+        @state=@states.tsumo
       when "tsumo"
         @turn++
-        a.actor.tsumo(a)
-        @status=@statuslist.dahai
+        @players[a.actor].tsumo(a)
+        @state=@states.dahai
       when "hora"
-        a.actor.hora(a)
+        @players[a.actor].hora(a)
         @agari(a)
         @end_kyoku(a)
-        @status=@statuslist.start_kyoku
-        return
+        @state=@states.end_kyoku
       when "reach"
-        a.actor.reach_naki_count=@naki_count
+        @players[a.actor].reach_naki_count=@naki_count
         @reached_player=a.actor
-        #@status=wait_for_response
-        #serverからresponseがきたときにwait_for_dahai
       when "reach_accepted"
-        a.actor.reach_accepted(a)
+        @players[a.actor].reach_accepted(a)
         @kyotaku++
         #点数変更
         a.actor.score-=1000
       when "dahai"
-        a.actor.dahai(a)
+        @players[a.actor].dahai(a)
         #他のPlayerに鳴き、ロン問い合わせ
-        @players.filter((i)=> i!=a.actor).forEach((i)->
-          i.ask(a))
-        @status=@statuslist.other_player
+        @state=@states.other_player
       when "pon"
-        #a.target.pop_kawa()
-        a.actor.pon(a)
-        @phase_set a.actor.number
-        @status=@statuslist.dahai
+        @players[a.actor].pon(a)
+        @phase_set a.actor
+        @state=@states.dahai
       when "chi"
-        #a.target.pop_kawa()
-        a.actor.chi(a)
+        @players[a.actor].actor.chi(a)
         @phase_set a.actor.number
-        @status=@statuslist.dahai
+        @state=@states.dahai
       when "kan"
         if a.target==a.actor
-          a.actor.kan(a)
+          @players[a.actor].kan(a)
         else
-          #a.target.pop_kawa()
-          a.actor.minkan(a)
+          @players[a.actor].minkan(a)
           #カンStage処理
-          @phase_set a.actor.number
-          @status=@statuslist.dahai
+          @phase_set a.actor
+          @state=@states.dahai
       when "none"
         @next_phase()
-        @status=@statuslist.tsumo
-        #@update()
+        @state=@states.tsumo
       when "ryukyoku"
         @end_kyoku(a)
-        @status=@statuslist.start_kyoku
+        @state=@states.end_kyoku
+      when "end_kyoku"
+        @state=@states.start_kyoku
+      when "end_game"
+        @state=@states.end_game
     if a.type=="pon"||a.type=="chi"||a.type=="kan"
       @naki_count++
 
     @notify a
+
+    for i in @players
+      i.ask(a)
+    
     a
 
   start:(a)->
-    @action_que.length=0      
-    for i in @players
+    @action_que.length=0
+    for i,n in @players
       i.set_kyoku()
       i.state=new MJState(i,@)
       i.checker=new HaiChecker(i.state)
-    #@turn = 0
+      i.kaze=(4+n-a.oya)%4 #???
     @kan_count=0
     @wanpai=[]
     @doras=[]
     @uradoras=[]
     @reachbou=[0,0,0,0]
     @phase_set a.oya
-
     @naki_count=0
 
     @bakaze=a.bakaze
@@ -212,13 +243,12 @@ class Stage extends ModelBase
     
     switch end_reason.type
       when "hora"
-        if end_reason.actor.is_oya()
+        if @players[end_reason.actor].is_oya()
           @honba++
         else
           @next_kyoku()
           
       when "ryukyoku"
-        @notify type:"ryukyoku"
         #親がテンパイしてたかどうか調べといて分岐
         sum=0
         flag=false
@@ -236,31 +266,24 @@ class Stage extends ModelBase
           @honba++
         else
           @next_kyoku()
-    @notify type:"end_kyoku"
 
   agari:(a)->
-    if !a.hasOwnProperty("deltas")
-      agari=a.actor.get_agari()
-      
-
+    agari=@players[a.actor].get_agari()
     if a.actor==a.target
       b=@players.filter((i)->i!=a.actor)
       for i in b
         if i.is_oya()
           i.score-=agari.scores[1]
-          a.actor.score+=agari.scores[1]
+          @players[a.actor].score+=agari.scores[1]
         else
           i.score-=agari.scores[0]
-          a.actor.score+=agari.scores[0]
-
-        
+          @players[a.actor].score+=agari.scores[0]        
     else
-      a.target.score-=agari.score
-      a.actor.score+=agari.score
+      @players[a.target].score-=agari.score
+      @players[a.actor].score+=agari.score
       if @kyotaku!=0
-        a.actor.score+=@kyotaku*1000
+        @players[a.actor].score+=@kyotaku*1000
         @kyotaku=0
-    @notify a
 
   phase_set:(a)->
     @phase=a%4
@@ -272,28 +295,9 @@ class Stage extends ModelBase
   next_kyoku:->
     @honba=0
     @kyoku++
-    if @kyoku>5
-      @kyoku=1
-      @bakaze++
-      if @bakaze>4
-        @players = []
-        for i in [0..3]
-          if i == 0
-            @players.push(new MyPlayer(i,i))
-          else
-            @players.push(new NPC(i,i))
-
-        @kyoku=1
-        @titya=0
-        @oya=@titya
-        @honba=0
-        @bakaze=0
-        @kyotaku=0
-        return
 
     for i in @players
-      i.kaze=(i.kaze+1)%4
-    @oya=(@oya+1)%4
+      i.kaze=(i.kaze-1)%4
 
 class Yama
   constructor:->
@@ -374,7 +378,8 @@ class Player extends ModelBase
   set_action:(a)->
     @action=a 
     @last_action=a
-    if a then console.log a
+    if a then @notify type:"selected",action:a,actor:@number
+
   pop_action:->
     a=@action
     @set_action false
@@ -390,11 +395,12 @@ class Player extends ModelBase
     @kawa=[]
   push_tehai:(h) ->
     @tehai.push(h)
+  clear_tehai:->
+    #@tehai.pop()
   push_kawa:(h)->
     @kawa.push(h)
   pop_kawa:->
-    #@kawa.pop()
-    #@notify type:"pop_kawa"
+
   tsumo:(a)->
     @push_tehai(a.pai)
     @tsumohai=a.pai
@@ -413,6 +419,10 @@ class Player extends ModelBase
   chi:(a)->
     @menzen=false
   hora:(a)->
+    if a.hasOwnProperty("hora_tehais")
+      @clear_tehai()
+      for i in a.hora_tehais
+        @push_tehai(i)
   kan:(a)->
   daiminkan:(a)->
     @menzen=false
@@ -448,6 +458,8 @@ class Player1 extends Player
   push_tehai:(pai)->
     super
     @checker.push_tehai(pai)
+  clear_tehai:->
+    @checker.clear_tehai()
   tsumo:(a)->
     @push_tehai(a.pai)
     @tsumohai=a.pai
@@ -481,10 +493,10 @@ class Player1 extends Player
     @checker.machis.length!=0
   pon:(a)->
     super
-    @checker.naki(a.pai,a.consumed)
+    @checker.pon(a.pai,a.consumed)
   chi:(a)->
     super
-    @checker.naki(a.pai,a.consumed)
+    @checker.chi(a.pai,a.consumed)
   kan:(a)->
     super
     @checker.kan(a.pai,a.consumed)
@@ -493,16 +505,24 @@ class Player1 extends Player
     @checker.daiminkan(a.pai,a.consumed)
 
 class MyPlayer extends Player1
-  set_action:(a)->
+  ask:(a)->
     super
-    if a then @notify type:"selected",action:a,actor:@
+    switch a.type
+      when "tsumo","reach","pon","chi","kan"
+        if a.actor==@number
+          return
+      when "dahai"
+        if a.actor!=@number
+          return
+    @set_action type:"none",actor:@number    
 
 class NPC extends Player1
   ask:(a)->
     super
-    @set_action type:"none",actor:@
+    unless (a.type=="hello"||a.type=="tsumo"&&a.actor==@number)
+      @set_action type:"none",actor:@number
   tsumo:(a)->
     super
-    @set_action type: "dahai",pai: a.pai,index: 13,actor:@
+    @set_action type: "dahai",pai: a.pai,index: 13,actor:@number
     
-class Plain extends Player
+class Plain extends Player1

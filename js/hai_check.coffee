@@ -2,6 +2,67 @@
 
 #アガリ判定、待ち判定、役の判定・役の点計算などを行なっている部分
 
+`
+function generateCombinations(array, r, callback) {
+    function equal(a, b) {
+        for (var i = 0; i < a.length; i++) {
+            if (a[i] != b[i]) return false;
+        }
+        return true;
+    }
+    function values(i, a) {
+        var ret = [];
+        for (var j = 0; j < i.length; j++) ret.push(a[i[j]]);
+        return ret;
+    }
+    var n = array.length;
+    var indices = [];
+    for (var i = 0; i < r; i++) indices.push(i);
+    var final = [];
+    for (var i = n - r; i < n; i++) final.push(i);
+    while (!equal(indices, final)) {
+        callback(values(indices, array));
+        var i = r - 1;
+        while (indices[i] == n - r + i) i -= 1;
+        indices[i] += 1;
+        for (var j = i + 1; j < r; j++) indices[j] = indices[i] + j - i;
+    }
+    callback(values(indices, array));
+}
+/*
+var a=["aaa","bbb","ccc","ddd"];
+generateCombinations(a,2,function(elem){
+    for(var i=0;i<elem.length;i++){
+      console.log(elem[i]);
+    }
+    console.log("|");
+  }
+)*/
+Array.prototype.shuffle = function() {
+    var i = this.length;
+    while(i){
+        var j = Math.floor(Math.random()*i);
+        var t = this[--i];
+        this[i] = this[j];
+        this[j] = t;
+    }
+    return this;
+};
+Array.prototype.uniq = function(){
+    var o = new Object;
+    var result = new Array;
+    for(var i = 0, l = this.length; i < l; i++){
+        var e = this[i];
+        if(!(e in o) || o[e].indexOf(typeof this[i]) == -1){
+            o[e] += typeof e;
+            result.push(e);
+        }
+    }
+    
+    return result;
+};
+`
+
 class MJ
   @jihai:(p)->
     p>26
@@ -194,10 +255,20 @@ class HaiChecker# extends MyPlayer
     @tehai.push(hai)
     @last_hai=hai
     #alert @tehai
-  naki:(p,con)->
+  clear_tehai:()->
+    @hais.p=[]
+    @tehai=[]
+  pon:(p,con)->
     @push_tehai(p)
     m=[p].concat(con)
     m.fooroh=true
+    m.kind=2
+    @hais.add_naki(m)
+  chi:(p,con)->
+    @push_tehai(p)
+    m=[p].concat(con)
+    m.fooroh=true
+    m.kind=1
     @hais.add_naki(m)
   ankan:(p,con)->
     @push_tehai(p)
@@ -236,11 +307,10 @@ class HaiChecker# extends MyPlayer
     result
   get_actually_score:->
     a=@get_agari()
-    #console.log "agari:",a
     if !a then throw "can't agari"
     score=a.score
     tscore=[0,0]
-    oya=@state.is_oya()
+    oya=@state.is_oya() #???おかしい
     honba=@state.honba()
     if oya
       score=Math.ceil(score*1.5/100)*100
@@ -346,7 +416,6 @@ class HaiChecker# extends MyPlayer
                 if mens.length!=0
                   i.torio.push(mens[0])
                   ag=[h].concat(i.torio).concat(nakis)
-                  console.log "agari",ag
                   @agaris.push(new Agari(@tehai,@last_hai,ag,@state))
                 else
                   tartsu=search_tartsu(tmp)
@@ -808,57 +877,4 @@ class Agari extends YakuCheck
             else
               machi[4]=true
     machi
-###
-class Test1
-  test:->
-    player=new HaiChecker(new DummyMJPlayerStates)
-    tyuren=[0,0,0,1,2,3,4,5,6,7,8,8,8,8]
-    suanko=[0,0,0,5,5,5,9,9,9,12,12,12,16,16]
-    pinhu=[0,0,0,1,2,6,7,8,18,19,20,21,22,23]
-    a=[0,1,2,3,4,5,6,7,8,9,10,11,12,0]
-    #a.sort((a,b)->
-      #a-b)
-    target=a
-
-    for i in target
-      player.push_tehai i
-      player.tsumo i
-
-    player.check_agari()
     
-    mes=player.agaris[0].get_score().message
-    score=player.agaris[0].get_score().score
-    s=""
-    for y in player.agaris[0].yakus
-      s+=y.name+" "
-    alert ""+target+"\n"+mes+" "+score+"点"+"\n"+s
-    alert player.agaris[0].mentsus
-  test2:->
-    player=new HaiChecker(new DummyMJPlayerStates)
-    tyuren=[0,0,0,1,2,3,4,5,6,7,8,8,8,16]
-    suanko=[0,0,0,5,5,5,9,9,9,12,12,12,16,16]
-    pinhu=[0,0,0,1,2,6,7,8,18,19,20,21,22,23]
-    a=[0,1,2,3,4,5,6,7,8,9,10,11,12,0]
-    #a.sort((a,b)->
-      #a-b)
-    target=tyuren
-
-    for i in target
-      player.push_tehai i
-      player.tsumo i
-
-    player.check_agari()
-    
-    machis=player.machis
-    m=[]
-    for i in machis
-      m.push i[0]
-    
-    alert m.uniq().sort((a,b)->a-b)
-    alert target
-    
-
-a=new Test1
-a.test()
-###
-

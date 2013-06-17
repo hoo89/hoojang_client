@@ -8,10 +8,6 @@ enchant()
 GAME_WIDTH=640
 GAME_HEIGHT=640
 
-class MyEntity extends Label
-  element :() ->
-    @_element
-
 class MyGame extends Game
   constructor :(stage) ->
     super GAME_WIDTH, GAME_HEIGHT
@@ -22,73 +18,46 @@ class MyGame extends Game
     @onload = =>
       @a=stage
       @stage_view=new StageViewComponents(@a)
+      @a.update()
 
       @screen.addEventListener "enterframe",=>
         @a.update()
 
-      #@foo=new MyEntity
-      #@foo.text="ロン"
-      #enchant.Game.instance.screen.addChild(@foo)
-      #$(@foo.element()).button()
-
     @start()
 
-class ViewBase
-  update:(sub,a)->
-  #constructor:(model)->
-    #@model=model
-    #@model.add_listener(@)
-  #destroy:->
-    #@model.remove_listener(@)
+class StageViewComponents
+  constructor:(model)->
 
-class ModelDebug
-  log:(n,a)->
-    m="player:"+n+" "+a.type+" "
-    for i,j of a
-      m+=i+":"+j+" "
-    console.log m
-
-class StageViewComponents extends ViewBase
-  constructor:(stage)->
-
-    @stage=stage
-    @stage.add_listener(@)
+    @model=model
     @pviews=[]
     for i in [0..3]
       if i==0
-        @pviews.push(new MyPlayerView(stage.players[i],i))
+        @pviews.push(new MyPlayerView(model.players[i],i))
       else
-        @pviews.push(new NPCPlayerView(stage.players[i],i))
-    @info=new StageInfoView(stage)
-    @mdebug=new ModelDebug
+        @pviews.push(new NPCPlayerView(model.players[i],i))
+    @info=new StageInfoView(model)
 
-  update:(sub,a)->
-    switch a.type
-      when "start_kyoku"
-        @info.update(sub,a)
-        for i in @pviews
-          if i[a.type]
-            i[a.type](a)
-      when "hora","ryukyoku"
-        @info.update(sub,a)
-      when "tsumo","reach","reach_accepted"
-        n=a.actor.number
-        if @pviews[n][a.type]
-          @pviews[n][a.type](a)
-      when "dahai"
-        n=a.actor.number
-        if @pviews[n][a.type]
-          @pviews[n][a.type](a)
-        if a.actor.number!=0
-          @pviews[0].wait_for_naki(a)
-      when "pon","chi","kan"
-        n=a.actor.number
-        if @pviews[n][a.type]
-          @pviews[n][a.type](a)
-    if a.hasOwnProperty("actor")
-      @mdebug.log(a.actor.number,a)
+    stage_acts=["start_kyoku","hora","ryukyoku","reach_accepted"]
+    for i in stage_acts
+      @model.add_listener(i,(a)=>
+        @info.update(a)
+      )
 
+    @model.add_listener("start_kyoku",(a)=>
+      for i in @pviews
+        i.start_kyoku(a)
+    )
 
+    players_acts=["tsumo","pon","chi","kan","dahai"]
+    for i in players_acts
+      @model.add_listener(i,(a)=>
+        @pviews[a.actor][a.type](a)
+      )
+
+    #@model.add_listener("dahai",(a)=>
+    #  if a.actor!=0
+    #    @pviews[0].wait_for_naki(a)
+    #)
 
 class PlayerView
   constructor:(@model,n)->
@@ -113,6 +82,7 @@ class PlayerView
     @add_naki(a)
   chi:(a)->
     @add_naki(a)
+  kan:()->
   add_naki:(a)->
     for i in a.consumed
       @tehai.remove(i)
@@ -121,7 +91,7 @@ class PlayerView
     @tehai.sort()
 
 class MyPlayerView extends PlayerView
-  constructor:(@model,n)->
+  constructor:(@player,n)->
     super
     @tehai=new PlayerTehai("tehai_"+n)
     @kawa=new Kawa("kawa_"+n)
@@ -130,14 +100,14 @@ class MyPlayerView extends PlayerView
     @tehai.addEventListener "mjPaiTouch",(e)=>
       switch @status
         when "none"
-          @model.set_action type: "dahai",pai: e.pai.val,index: e.pai.index,actor: @model
+          @player.set_action type: "dahai",pai: e.pai.val,index: e.pai.index,actor: @player.number
         when "pon","chi","kan"
         　　#入力チェック（仮）
           if @tehai.select_hais.length!=@tehai.select_hai_max
             return
           @tehai.select_hai_max=1
           c=@tehai.select_hais.map((i)->i.val)
-          @model.set_action type: @status,pai: @model.target_pai,consumed:c,actor: @model,target: @model.target_player
+          @player.set_action type: @status,pai: @player.target_pai,consumed:c,actor: @player,target: @player.target_player
           @buttons.hide_all()
           @tehai.unlock()
           @status="none"
@@ -149,23 +119,24 @@ class MyPlayerView extends PlayerView
     @buttons=new MJRonButtons
     a={
       tsumo:=>
-        @model.set_action {
+        @player.set_action {
             type:"hora"
-            actor:@model
-            pai:@model.tsumohai
-            target:@model
+            actor:@player.number
+            pai:@player.tsumohai
+            target:@player
+            hora_tehais:@player.tehai
         }
       ron:=>
-        @model.set_action {
+        @player.set_action {
           type:"hora"
-          actor:@model
-          pai:@model.target_pai
-          target:@model.target_player
+          actor:@player.number
+          pai:@player.target_pai
+          target:@player.target_player
         }
       cancel:=>
-        @model.set_action {
+        @player.set_action {
           type:"none"
-          actor:@model
+          actor:@player.number
         }
         @buttons.hide_all()
         @status="none"
@@ -173,7 +144,7 @@ class MyPlayerView extends PlayerView
         @tehai.select_hai_max=2
         @status="pon"
         #@tehai.lock=false
-        p=@model.can_pon()
+        p=@player.can_pon()
         for i in @tehai.pais
           if i.val in p
             i.lock=false
@@ -184,18 +155,18 @@ class MyPlayerView extends PlayerView
         @tehai.select_hai_max=2
         @status="chi"
         #@tehai.lock=false
-        p=@model.can_chi()
+        p=@player.can_chi()
         for i in @tehai.pais
           if i.val in p
             i.lock=false
           else
             i.lock=true
       reach:=>
-        @model.set_action {
+        @player.set_action {
           type:"reach"
-          actor:@model
+          actor:@player.number
         }
-        p=@model.can_reach()
+        p=@player.can_reach()
         for i in @tehai.pais
           if i.val in p
             i.lock=false
@@ -222,12 +193,12 @@ class MyPlayerView extends PlayerView
   tsumo:(a)->
     @tehai.push(a.pai)
     #@tehai.lock=false
-    if !@model.reach
+    if !@player.reach
       #alert "a"
       @tehai.unlock()
-    if @model.can_agari()
+    if @player.can_agari()
       @buttons.tsumo.visible=true
-    if @model.can_reach()
+    if @player.can_reach()
       @buttons.reach.visible=true
   dahai:(a)->
     #@tehai.lock=true
@@ -243,21 +214,21 @@ class MyPlayerView extends PlayerView
       @reach()
   wait_for_naki:(a)->
     f=false
-    if @model.can_pon()
+    if @player.can_pon()
       @buttons.pon.visible=f=true
-    if @model.can_chi()
+    if @player.can_chi()
       @buttons.chi.visible=f=true
-    if @model.can_kan()
+    if @player.can_kan()
       @buttons.kan.visible=f=true
-    if @model.can_ron()
+    if @player.can_ron()
       @buttons.ron.visible=f=true
     if !f 
-      @model.set_action type:"none",actor:@model
+      @player.set_action type:"none",actor:@player.number
       return
     @buttons.cancel.visible=true
 
 class NPCPlayerView extends PlayerView
-  constructor:(@model,n)->
+  constructor:(@player,n)->
     super
     @tehai=new NPCTehai("tehai_"+n)
     @kawa=new Kawa("kawa_"+n)
@@ -267,7 +238,7 @@ class AgariMessage
     if !agari 
       alert "フリテン"
       return
-    y=""
+    y = ""
     for i in agari.yakus
       y+=i.name+" "
     alert y+"\n"+agari.message+" "+agari.score+"点"
@@ -277,20 +248,20 @@ class StageInfoView
     #@stage.add_listener(@)
     @players=@stage.players
     @kyoku_label=new Label("")
-    @kyoku_label.layout_id="kyoku_label"
+    @kyoku_label.layout_id = "kyoku_label"
     @scores=[]
     for i,j in @players
       @scores.push(new Label(""))
-      @scores[j].layout_id=@scores[j].id="score_"+j
-    @doras=[]
+      @scores[j].layout_id=@scores[j].id= "score_" + j
+    @doras = []
     @kyoku_names=["東","南","西","北"]
     enchant.Game.instance.screen.addChild(@kyoku_label)
     for i in @scores
       enchant.Game.instance.screen.addChild(i)
 
-  update:(subject,action)->
+  update:(action)->
     switch action.type
-      when "start_kyoku"
+      when "start_kyoku","reach_accepted"
         @kyoku_label.text=@kyoku_names[Math.floor((@stage.kyoku-1)/4)]+((@stage.kyoku-1)%4+1)+"局 "+@stage.honba+"本場"
         for i in [0...4]
           @scores[i].text=""+@players[i].score
@@ -303,15 +274,13 @@ class StageInfoView
   add_dora:(p)->
     dora.push(p)
 
-class MJPlayerScores extends ViewBase
-  constructor:(model)->
+class MJPlayerScores
+  constructor:(player)->
 
   update:(sub,a)->
     switch a.type
       when "start_kyoku","reach_accepted"
         @updateLabel()
-  #updateLabel:->
-    #score.txt=@model.score
 
 class MJRonButtons
   imageSizeX:30
@@ -366,8 +335,8 @@ class DraggablePai extends PaiSprite
   touch_start:(e)->
     @sabunX = e.x - @x
     @sabunY = e.y - @y
-    @originX = @x
-    @originY = @y
+    @previousX = @x
+    @previousY = @y
 
   touch_move:(e)->
     if @unlocked()
@@ -385,8 +354,8 @@ class DraggablePai extends PaiSprite
       @opacity=1
 
   touch_end:(e)->
-    @x=@originX
-    @y=@originY
+    @x=@previousX
+    @y=@previousY
     if @unlocked()&&@selected()
       @parentNode.dispatchEvent(type: "mjPaiTouch",pai: this,pais: @parentNode.select_hais)
       @deselect()
@@ -396,7 +365,7 @@ class DraggablePai extends PaiSprite
         @select()
         @touched=true
   distance:->
-    Math.pow(@x-@originX,2)+Math.pow(@y-@originY,2)
+    Math.pow(@x-@previousX,2)+Math.pow(@y-@previousY,2)
   select:->
     @parentNode.select(@)
   selected:->
@@ -404,11 +373,9 @@ class DraggablePai extends PaiSprite
   deselect:->
     @parentNode.deselect()
   unlocked:->
-    #!@parentNode.lock&&(!@parentNode.reach||@index==13)
-    #!@parentNode.lock
     !@lock
 
-class PaiHolder extends CanvasGroup
+class PaiHolder extends Group
   imageSizeX: 30
   imageSizeY: 52
   maxCol:100
@@ -418,6 +385,8 @@ class PaiHolder extends CanvasGroup
   constructor:(layout_id) ->
     super()
     @layout_id=layout_id
+    @originX=210
+    @originY=26
     
   push: (val) ->
     @addChild(pai=new PaiSprite(val))
@@ -442,6 +411,7 @@ class PaiHolder extends CanvasGroup
 class Tehai extends PaiHolder
   imageSizeX: 30
   imageSizeY: 52
+
   constructor:(layout_id)->
     super
     @nakilist=[]
@@ -490,13 +460,10 @@ class PlayerTehai extends Tehai
   imageSizeY: 52
   line_width:4
   constructor:(layout) ->
-    #@pais=[]
-    #@lock=true
     @select_hais=[]
     @select_hai_max=1
     @wakus=[]
     super
-    #enchant.Game.instance.screen.addChild(this)
     @set_waku()
 
   set_waku:->
@@ -541,9 +508,6 @@ class NPCTehai extends Tehai
   constructor:(layout)->
     super
     @pais=[]
-    #for i in [0..12]
-      #@push(new Pai(34))
-    #enchant.Game.instance.screen.addChild(this)
   remove:(a)->
     @delete_at(Math.floor(Math.random()*@pais.length))
   push: (val) ->
@@ -573,13 +537,15 @@ class Kawa extends PaiHolder
 
   constructor:(layout)->
     super
+    @originX=0
+    @originY=0
     enchant.Game.instance.screen.addChild(this)
     @pais=[]
     @maxCol=6
 
   push:(val)->
     @addChild(pai=new PaiSprite(val))
-    pai.scale(0.8,0.8)#設計的に…
+    pai.scale(0.8,0.8)
     @pais.push(pai)
     pai.moveTo(@imageSizeX*((@pais.length-1)%@maxCol),@imageSizeY*Math.floor((@pais.length-1)/@maxCol))
     pai.index=@pais.length-1
